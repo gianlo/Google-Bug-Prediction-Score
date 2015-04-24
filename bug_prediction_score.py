@@ -1,11 +1,18 @@
 #!/bin/python
 
-import sys, os
+from __future__ import print_function
+
+import os
 import math
 import datetime
-import commands
+import subprocess
 import csv
 import optparse
+
+
+
+def get_output(cmd):
+    return subprocess.check_output(cmd)
 
 command_option = None
 
@@ -26,13 +33,13 @@ def getdates(lines):
         h = line.find("Date:")
         if h != -1:
             date = text2date(line)
-            if date != None:
+            if date is not None:
                 datelist.append(date)
     return datelist
         
 def get_gitlog(path):
-    command = "git log --date=short " + path
-    text = commands.getoutput(command)
+    command = ["git", "log", "--date=short", '--', path]
+    text = get_output(command).decode("utf-8")
     lines = text.split("\n")
     return lines
 
@@ -45,7 +52,7 @@ def google_score(duration, existing):
 def calc_fix_score(datelist):
     if len(datelist) < 1:
         return 0
-    first_commit_date= datelist[len(datelist)-1]
+    first_commit_date = datelist[len(datelist)-1]
     existing_days = daydifference(first_commit_date, datetime.date.today().isoformat())
     score = 0
     for date in datelist:
@@ -61,7 +68,7 @@ def calc_score_from_path(path):
 
 def remove_unused_ext(path):
     global command_option
-    if command_option.extension == None:
+    if command_option.extension is None:
         return path
     ext = "." + command_option.extension
     index = path.find(ext)
@@ -79,7 +86,7 @@ def remove_git_directory(path):
 
 def remove_unused_path(path):
     path = remove_unused_ext(path)
-    if (path != None):
+    if path is not None:
         path = remove_git_directory(path)
     return path
 
@@ -87,10 +94,12 @@ def remove_unused_path(path):
 def get_file_pathes(root):
     filelist = []
     for dpath, dnames, fnames in os.walk(root):
+        if not remove_git_directory(dpath):
+            continue
         for fname in fnames:
-            path = dpath+"/"+fname
+            path = os.path.join(dpath, fname)
             need_path = remove_unused_path(path)
-            if need_path != None:
+            if need_path is not None:
 	            filelist.append(need_path)
     return filelist
 
@@ -98,10 +107,9 @@ def get_package_pathes(root):
     packagelist = []
     for dpath, dnames, fnames in os.walk(root):
         for dname in dnames:
-            path = dpath+"/"+dname
-            path = path.replace('//', '/')
+            path = os.path.join(dpath, dname)
             path = remove_git_directory(path)
-            if path != None:
+            if path is not  None:
                 packagelist.append(path)
     return packagelist
 
@@ -114,34 +122,40 @@ def get_pathes(root):
         list = get_file_pathes(root)
     return list
 
-def perse_option():
+def parse_option():
     parser = optparse.OptionParser()
     parser.add_option("-t", "--target", dest="target",
         default=".",
         help="target path to analyse")
-    parser.add_option("-p", "--package", dest="package",
-        default="False", help="analyse not for file but package")
+    parser.add_option("-p", "--package", dest="package", action="store_true",
+        default=False, help="analyse not for file but package")
     parser.add_option("-e", "--extension", dest="extension",
         default=None, help="extension restriction (used only --package==False)")
     options, remainder = parser.parse_args()
-    print 'target    :', options.target
-    print 'package   :', options.package
-    print 'extension :', options.extension
+    print( 'target    :', options.target)
+    print( 'package   :', options.package)
+    print( 'extension :', options.extension)
     global command_option
     command_option = options
     return options
 
-print "=====start======"
-options = perse_option()
+print("=====start======")
+options = parse_option()
 outputfile = "bugfix_score.csv"
-writercsv = csv.writer(file(outputfile,"w"))
-
-filelist = get_pathes(options.target)
-for f in filelist:
-    score = calc_score_from_path(f)
-    print f
-    print score
-    writercsv.writerow([f, score])
+with open(outputfile, "wt", newline='') as ofi:
+    writercsv = csv.writer(ofi)
+    print("Retrieving files...")
+    filelist = get_pathes(options.target)
+    print("Scoring files...")
+    os.chdir(options.target)
+    for f in filelist:
+        try:
+            score = calc_score_from_path(f)
+            if score > 0:
+                print( f, score)
+            writercsv.writerow([f, score])
+        except:
+            continue
     
-print "=====end======"
+print("=====end======")
 
